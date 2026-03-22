@@ -6,7 +6,7 @@ import uvicorn
 from typing import Optional
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, RedirectResponse
 from starlette.routing import Route, Mount
 from mcp.server.fastmcp import FastMCP
 
@@ -16,6 +16,7 @@ CURIOSITY_TOKEN = os.getenv("CURIOSITY_API_TOKEN", "")
 
 # --- MCP Server ---
 mcp = FastMCP("Curiosity Search", stateless_http=True)
+
 
 def _parse_response(data: dict, query: str) -> dict:
     results = []
@@ -35,6 +36,7 @@ def _parse_response(data: dict, query: str) -> dict:
                 "score": item.get("score") or item.get("relevance"),
             })
     return {"results": results, "total": len(results), "query": query}
+
 
 async def _query_curiosity(query: str, max_results: int, source_filter: Optional[str]) -> dict:
     headers = {}
@@ -67,6 +69,7 @@ async def _query_curiosity(query: str, max_results: int, source_filter: Optional
         "error": f"Could not reach Curiosity at {CURIOSITY_BASE}. Make sure Curiosity Desktop is running.",
     }
 
+
 @mcp.tool()
 async def search_curiosity(
     query: str,
@@ -82,6 +85,7 @@ async def search_curiosity(
     result = await _query_curiosity(query, max_results, source_filter)
     return json.dumps(result, indent=2)
 
+
 @mcp.tool()
 async def check_curiosity_status() -> str:
     """Check if the Curiosity Desktop App is running and reachable."""
@@ -92,17 +96,55 @@ async def check_curiosity_status() -> str:
     except Exception as e:
         return json.dumps({"status": "unreachable", "error": str(e)})
 
-# --- OAuth metadata endpoint so Perplexity doesn't reject with auth error ---
+
+# --- OAuth metadata endpoint ---
 async def oauth_metadata(request: Request) -> JSONResponse:
     base = str(request.base_url).rstrip("/")
     return JSONResponse({
         "issuer": base,
         "authorization_endpoint": f"{base}/oauth/authorize",
         "token_endpoint": f"{base}/oauth/token",
+        "registration_endpoint": f"{base}/oauth/register",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
     })
+
+
+# --- OAuth stub: dynamic client registration ---
+async def oauth_register(request: Request) -> JSONResponse:
+    body = await request.json()
+    client_id = os.urandom(16).hex()
+    return JSONResponse({
+        "client_id": client_id,
+        "client_secret": "",
+        "redirect_uris": body.get("redirect_uris", []),
+        "grant_types": ["authorization_code"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    }, status_code=201)
+
+
+# --- OAuth stub: authorization endpoint ---
+async def oauth_authorize(request: Request) -> Response:
+    params = dict(request.query_params)
+    redirect_uri = params.get("redirect_uri", "")
+    state = params.get("state", "")
+    code = os.urandom(16).hex()
+    sep = "&" if "?" in redirect_uri else "?"
+    location = f"{redirect_uri}{sep}code={code}&state={state}"
+    return RedirectResponse(url=location, status_code=302)
+
+
+# --- OAuth stub: token endpoint ---
+async def oauth_token(request: Request) -> JSONResponse:
+    return JSONResponse({
+        "access_token": "curiosity-no-auth",
+        "token_type": "bearer",
+        "expires_in": 86400,
+    })
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -114,6 +156,9 @@ if __name__ == "__main__":
     mcp_app = mcp.streamable_http_app()
     app = Starlette(routes=[
         Route("/.well-known/oauth-authorization-server", oauth_metadata),
+        Route("/oauth/register", oauth_register, methods=["POST"]),
+        Route("/oauth/authorize", oauth_authorize),
+        Route("/oauth/token", oauth_token, methods=["POST"]),
         Mount("/", app=mcp_app),
     ])
     uvicorn.run(
