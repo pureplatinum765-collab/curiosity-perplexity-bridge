@@ -4,6 +4,10 @@ import json
 import argparse
 import uvicorn
 from typing import Optional
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+from starlette.routing import Route, Mount
 from mcp.server.fastmcp import FastMCP
 
 # --- Config ---
@@ -70,7 +74,6 @@ async def search_curiosity(
     source_filter: Optional[str] = None,
 ) -> str:
     """Search across all your connected apps via Curiosity AI desktop app.
-
     Args:
         query: The search query to send to Curiosity
         max_results: Maximum number of results to return (1-50, default 10)
@@ -89,6 +92,18 @@ async def check_curiosity_status() -> str:
     except Exception as e:
         return json.dumps({"status": "unreachable", "error": str(e)})
 
+# --- OAuth metadata endpoint so Perplexity doesn't reject with auth error ---
+async def oauth_metadata(request: Request) -> JSONResponse:
+    base = str(request.base_url).rstrip("/")
+    return JSONResponse({
+        "issuer": base,
+        "authorization_endpoint": f"{base}/oauth/authorize",
+        "token_endpoint": f"{base}/oauth/token",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code"],
+        "code_challenge_methods_supported": ["S256"],
+    })
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8000)
@@ -96,11 +111,15 @@ if __name__ == "__main__":
     print(f"Starting Curiosity MCP server on http://127.0.0.1:{args.port}")
     print("Transport: Streamable HTTP | MCP endpoint: /mcp")
     print("Press Ctrl+C to stop.")
-    app = mcp.streamable_http_app()
+    mcp_app = mcp.streamable_http_app()
+    app = Starlette(routes=[
+        Route("/.well-known/oauth-authorization-server", oauth_metadata),
+        Mount("/", app=mcp_app),
+    ])
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=args.port,
         forwarded_allow_ips="*",
-            proxy_headers=True,
+        proxy_headers=True,
     )
