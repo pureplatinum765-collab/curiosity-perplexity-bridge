@@ -2,6 +2,7 @@ import os
 import httpx
 import json
 import argparse
+import uvicorn
 from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
@@ -11,7 +12,6 @@ CURIOSITY_TOKEN = os.getenv("CURIOSITY_API_TOKEN", "")
 
 # --- MCP Server ---
 mcp = FastMCP("Curiosity Search")
-
 
 def _parse_response(data: dict, query: str) -> dict:
     results = []
@@ -31,7 +31,6 @@ def _parse_response(data: dict, query: str) -> dict:
                 "score": item.get("score") or item.get("relevance"),
             })
     return {"results": results, "total": len(results), "query": query}
-
 
 async def _query_curiosity(query: str, max_results: int, source_filter: Optional[str]) -> dict:
     headers = {}
@@ -64,7 +63,6 @@ async def _query_curiosity(query: str, max_results: int, source_filter: Optional
         "error": f"Could not reach Curiosity at {CURIOSITY_BASE}. Make sure Curiosity Desktop is running.",
     }
 
-
 @mcp.tool()
 async def search_curiosity(
     query: str,
@@ -81,7 +79,6 @@ async def search_curiosity(
     result = await _query_curiosity(query, max_results, source_filter)
     return json.dumps(result, indent=2)
 
-
 @mcp.tool()
 async def check_curiosity_status() -> str:
     """Check if the Curiosity Desktop App is running and reachable."""
@@ -92,13 +89,17 @@ async def check_curiosity_status() -> str:
     except Exception as e:
         return json.dumps({"status": "unreachable", "error": str(e)})
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-    mcp.settings.port = args.port
     print(f"Starting Curiosity MCP server on http://127.0.0.1:{args.port}")
-    print("Transport: Streamable HTTP  |  MCP endpoint: /mcp")
+    print("Transport: Streamable HTTP | MCP endpoint: /mcp")
     print("Press Ctrl+C to stop.")
-    mcp.run(transport="streamable-http")
+    app = mcp.streamable_http_app()
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=args.port,
+        forwarded_allow_ips="*",
+    )
