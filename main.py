@@ -4,19 +4,13 @@ import json
 import argparse
 from typing import Optional
 from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
 
 # --- Config ---
 CURIOSITY_BASE = os.getenv("CURIOSITY_BASE_URL", "http://localhost:19191")
 CURIOSITY_TOKEN = os.getenv("CURIOSITY_API_TOKEN", "")
 
-# --- MCP Server (streamable-http, DNS rebinding protection disabled for tunnel) ---
-mcp = FastMCP(
-    "Curiosity Search",
-    description="Search across all your connected apps via Curiosity AI desktop app",
-    stateless_http=True,
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-)
+# --- MCP Server ---
+mcp = FastMCP("Curiosity Search")
 
 
 def _parse_response(data: dict, query: str) -> dict:
@@ -105,7 +99,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     mcp.settings.port = args.port
     print(f"Starting Curiosity MCP server on http://127.0.0.1:{args.port}")
-    print("Transport: Streamable HTTP")
-    print("MCP endpoint: /mcp")
+    print("Transport: Streamable HTTP  |  MCP endpoint: /mcp")
     print("Press Ctrl+C to stop.")
     mcp.run(transport="streamable-http")
