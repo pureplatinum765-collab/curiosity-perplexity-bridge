@@ -11,7 +11,7 @@ CURIOSITY_BASE = os.getenv("CURIOSITY_BASE_URL", "http://localhost:19191")
 CURIOSITY_TOKEN = os.getenv("CURIOSITY_API_TOKEN", "")
 
 # --- MCP Server ---
-mcp = FastMCP("Curiosity Search")
+mcp = FastMCP("Curiosity Search", stateless_http=True)
 
 def _parse_response(data: dict, query: str) -> dict:
     results = []
